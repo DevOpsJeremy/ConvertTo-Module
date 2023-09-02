@@ -11,7 +11,6 @@ function ConvertTo-Module
                 private\
                     functions\
                         <Private Function Files (`.ps1`)>
-                    Assemblies.ps1
                     Types.ps1
                 public\
                     functions\
@@ -135,9 +134,9 @@ function ConvertTo-Module
             Mandatory,
             Position = 0
         )]
-        [System.IO.FileInfo] $Source,
+        [String] $Source,
         [String] $Name,
-        [System.IO.DirectoryInfo] $Destination = $PWD.Path,
+        [String] $Destination = $PWD.Path,
         [String[]] $PrivateFunctions,
         [ValidateSet(
             'Desktop',
@@ -194,47 +193,23 @@ function ConvertTo-Module
             -Path $Path `
             -Value $TypeDefAstList.Extent.Text
     }
-    function New-AssemblyFile {
+    function Get-RequiredAssemblies {
         param (
-            [String] $Path,
             [System.Management.Automation.Language.ScriptBlockAst] $Parser
         )
-        function Get-Assemblies {
-            param (
-                [System.Management.Automation.Language.ScriptBlockAst] $Parser
-            )
-            $pipelineAst = $Parser.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.PipelineAst] }
-            $addTypeCmd = $pipelineAst | Where-Object { $_.PipelineElements.CommandElements.Value -icontains 'Add-Type' }
-            $assemblies = foreach ($cmd in $addTypeCmd){
-                $cmdElements = $cmd.PipelineElements.CommandElements | Where-Object { $_.Value -inotcontains 'Add-Type' }
-                foreach ($element in $cmdElements){
-                    if (
-                        $element -is [System.Management.Automation.Language.CommandParameterAst] -and
-                        $element.ParameterName -match 'AssemblyName'
-                    ){
-                        $assembly = $true
-                    } elseif ($assembly){
-                        if ($element.StaticType -eq [System.String]){
-                            (Get-Culture).TextInfo.ToTitleCase($element.Extent.Text)
-                        } elseif ($element.StaticType -eq [System.Object[]]) {
-                            Invoke-Expression -Command $element.Extent.Text
-                        }
-                        $assembly = $false
-                    }
-                }
-            }
-            return $assemblies | ForEach-Object { (Get-Culture).TextInfo.ToTitleCase($_) }
-        }
-        $assemblies = Get-Assemblies -Parser $Parser 
-        if ($assemblies){
-            Set-Content `
-                -Path $Path `
-                -Value "Add-Type -AssemblyName $(
-                    (
-                        $assemblies | ForEach-Object { "'$_'" }
-                    ) -join ','
-                )"
-        }
+        try {
+            $Parser.FindAll(
+                {
+                    param($node)
+                    $node.Parent -is [commandast] -and 
+                    $node.Parent.GetCommandName() -eq 'Add-Type' -and 
+                    ($index = $node.Parent.CommandElements.IndexOf($node)) -and
+                    $node.Parent.CommandElements[$index - 1] -is [System.Management.Automation.Language.CommandParameterAst] -and 
+                    $node.Parent.CommandElements[$index - 1].ParameterName -match '^a'
+                },
+                $true
+            ).SafeGetValue() | Select-Object -Unique
+        } catch {}
     }
     function New-ModuleFile {
         param (
@@ -270,13 +245,17 @@ function ConvertTo-Module
     }
     #endregion Functions
 
+    # Resolve paths
+    $SourceObject = Resolve-Path -Path $Source | Get-Item
+    $DestinationObject = Resolve-Path -Path $Destination | Get-Item
+
     # Parse functions from script
     if (!$Name){
-        $Name = $Source.BaseName
+        $Name = $SourceObject.BaseName
     }
 
     $scriptParser = [System.Management.Automation.Language.Parser]::ParseFile(
-        $Source.FullName,
+        $SourceObject.FullName,
         [ref] $null,
         [ref] $null
     )
@@ -285,7 +264,7 @@ function ConvertTo-Module
     )
 
     # Create directory structure
-    $rootPath = "$($Destination.FullName)\$Name"
+    $rootPath = "$($DestinationObject.FullName)\$Name"
     @{
         public = @(
             'functions'
@@ -334,17 +313,15 @@ function ConvertTo-Module
     # Create types file 
     New-TypeDefinitionFile -Path "$privatePath\Types.ps1" -Parser $scriptParser
 
-    # Create assembly file
-    New-AssemblyFile -Path "$privatePath\Assemblies.ps1" -Parser $scriptParser
-
     # Create module file 
-    New-ModuleFile -Path $modulePath -Script $Source
+    New-ModuleFile -Path $modulePath -Script $SourceObject
 
     # Create module manifest
     $manifestParams = @{
         Path = $manifestPath
         RootModule = Split-Path $modulePath -Leaf
         FunctionsToExport = $functionParser.Name | Where-Object { $_ -notin $PrivateFunctions }
+        RequiredAssemblies = Get-RequiredAssemblies -Parser $scriptParser
     }
     foreach (
         $parameter in $PSBoundParameters.GetEnumerator() | 
