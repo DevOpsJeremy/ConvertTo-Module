@@ -186,19 +186,19 @@ function ConvertTo-Module
     function New-TypeDefinitionFile {
         param (
             [String] $Path,
-            [System.Management.Automation.Language.ScriptBlockAst] $Parser
+            [System.Management.Automation.Language.ScriptBlockAst] $ScriptBlockAst
         )
-        $TypeDefAstList = $Parser.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.TypeDefinitionAst] } | Sort-Object -Property IsEnum -Descending
+        $TypeDefAstList = $ScriptBlockAst.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.TypeDefinitionAst] } | Sort-Object -Property IsEnum -Descending
         Set-Content `
             -Path $Path `
             -Value $TypeDefAstList.Extent.Text
     }
     function Get-RequiredAssemblies {
         param (
-            [System.Management.Automation.Language.ScriptBlockAst] $Parser
+            [System.Management.Automation.Language.ScriptBlockAst] $ScriptBlockAst
         )
         try {
-            $Parser.FindAll(
+            $ScriptBlockAst.FindAll(
                 {
                     param($node)
                     $node.Parent -is [commandast] -and 
@@ -214,27 +214,10 @@ function ConvertTo-Module
     function New-ModuleFile {
         param (
             [String] $Path,
-            [System.IO.FIleInfo] $Script
+            [System.Management.Automation.Language.ScriptBlockAst] $ScriptBlockAst
         )
-        function Get-ScriptHelpBlock {
-            param (
-                [System.IO.FileInfo] $Script
-            )
-            $Content = Get-Content $Script
-            $line = 0
-            while ($Content[$line] -notmatch '<#' -and $line -le $Content.Count){
-                $line++
-            }
-            $commentBlockArray = @()
-            do {
-                $commentBlockArray += $Content[$line]
-                $line++
-            } until ($Content[$line] -match '#>' -or $line -gt $Content.Count)
-            $commentBlockArray += $Content[$line++]
-            return $commentBlockArray
-        }
         Set-Content -Path $Path -Value @(
-            (Get-ScriptHelpBlock -Script $Script),
+            $ScriptBlockAst.GetHelpContent().GetCommentBlock(),
             "Get-ChildItem (Split-Path `$script:MyInvocation.MyCommand.Path) -Filter '*.ps1' -Recurse | ForEach-Object { ",
             "    . `$_.FullName ",
             "}" ,
@@ -311,17 +294,17 @@ function ConvertTo-Module
     }
 
     # Create types file 
-    New-TypeDefinitionFile -Path "$privatePath\Types.ps1" -Parser $scriptParser
+    New-TypeDefinitionFile -Path "$privatePath\Types.ps1" -ScriptBlockAst $scriptParser
 
     # Create module file 
-    New-ModuleFile -Path $modulePath -Script $SourceObject
+    New-ModuleFile -Path $modulePath -ScriptBlockAst $scriptParser
 
     # Create module manifest
     $manifestParams = @{
         Path = $manifestPath
         RootModule = Split-Path $modulePath -Leaf
         FunctionsToExport = $functionParser.Name | Where-Object { $_ -notin $PrivateFunctions }
-        RequiredAssemblies = Get-RequiredAssemblies -Parser $scriptParser
+        RequiredAssemblies = Get-RequiredAssemblies -ScriptBlockAst $scriptParser
     }
     foreach (
         $parameter in $PSBoundParameters.GetEnumerator() | 
