@@ -102,6 +102,8 @@ function ConvertTo-Module
     .LINK
         https://devopsjeremy.github.io/documentation/powershell/ConvertTo-Module.html
     .LINK
+        Source code: https://github.com/DevOpsJeremy/DevOpsJeremy.github.io/blob/main/documentation/powershell/ConvertTo-Module.md
+    .LINK
         About PowerShell Modules: https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_modules
     .LINK
         New-ModuleManifest: https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/new-modulemanifest
