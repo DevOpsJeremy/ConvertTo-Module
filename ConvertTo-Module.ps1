@@ -185,9 +185,11 @@ function ConvertTo-Module
             [System.Management.Automation.Language.ScriptBlockAst] $Parser
         )
         $TypeDefAstList = $Parser.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.TypeDefinitionAst] } | Sort-Object -Property IsEnum -Descending
-        Set-Content `
-            -Path $Path `
-            -Value $TypeDefAstList.Extent.Text
+        if ($TypeDefAstList){
+            Set-Content `
+                -Path $Path `
+                -Value $TypeDefAstList.Extent.Text
+        }
     }
     function Get-Assemblies {
         <#
