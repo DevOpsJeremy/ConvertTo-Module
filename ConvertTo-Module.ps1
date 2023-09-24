@@ -115,7 +115,7 @@ function ConvertTo-Module
         
         These commands create the ConfiForms PowerShell module and directory structure, sets the author and description, then imports the module.
     .NOTES
-            Ver
+        Version: 1.0.0.0
     #>
     param (
         [Parameter(
@@ -123,8 +123,14 @@ function ConvertTo-Module
             Position = 0
         )]
         [string] $Source,
-        [String] $Name,
+        [Parameter(
+            Position = 1
+        )]
         [string] $Destination = $PWD.Path,
+        [Parameter(
+            Position = 2
+        )]
+        [String] $Name,
         [String[]] $PrivateFunctions,
         [ValidateSet(
             'Desktop',
