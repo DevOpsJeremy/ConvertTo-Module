@@ -1,6 +1,6 @@
 function ConvertTo-Module
 {
-    <#
+    <# 
     .SYNOPSIS
         Converts a PowerShell script of functions into a module.
     .DESCRIPTION
@@ -100,7 +100,7 @@ function ConvertTo-Module
     .OUTPUTS
         System.IO.DirectoryInfo
     .LINK
-        https://services.csa.spawar.navy.mil/confluence/display/CANES/PowerShell+Modules#PowerShellModules-ConvertTo-Module
+        https://devopsjeremy.github.io/documentation/powershell/ConvertTo-Module.html
     .LINK
         About PowerShell Modules: https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_modules
     .LINK
@@ -115,19 +115,7 @@ function ConvertTo-Module
         
         These commands create the ConfiForms PowerShell module and directory structure, sets the author and description, then imports the module.
     .NOTES
-            Script: ConvertTo-Module.ps1
-            CANES Subsystem: AIR
-            -------------------------------------------------
-            DEPENDENCIES
-                N/A
-            CALLED BY
-                Stand alone
-            -------------------------------------------------
-            History:
-            Ver         Date         Modifications
-            -------------------------------------------------
-            1.0.0.0     07/27/2023   JSW: CANES-52630 Delivery
-        ===================================================================
+            Ver
     #>
     param (
         [Parameter(
@@ -225,8 +213,7 @@ function ConvertTo-Module
     function New-ModuleFile {
         param (
             [String] $Path,
-            [System.IO.FileInfo] $Script,
-            [System.Management.Automation.Language.ScriptBlockAst] $ScriptBlockAst
+            [System.IO.FileInfo] $Script
         )
         function Get-ScriptHelpBlock {
             param (
