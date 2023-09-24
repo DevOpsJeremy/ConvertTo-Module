@@ -134,9 +134,9 @@ function ConvertTo-Module
             Mandatory,
             Position = 0
         )]
-        [String] $Source,
+        [string] $Source,
         [String] $Name,
-        [String] $Destination = $PWD.Path,
+        [string] $Destination = $PWD.Path,
         [String[]] $PrivateFunctions,
         [ValidateSet(
             'Desktop',
@@ -186,59 +186,85 @@ function ConvertTo-Module
     function New-TypeDefinitionFile {
         param (
             [String] $Path,
-            [System.Management.Automation.Language.ScriptBlockAst] $ScriptBlockAst
+            [System.Management.Automation.Language.ScriptBlockAst] $Parser
         )
-        $TypeDefAstList = $ScriptBlockAst.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.TypeDefinitionAst] } | Sort-Object -Property IsEnum -Descending
+        $TypeDefAstList = $Parser.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.TypeDefinitionAst] } | Sort-Object -Property IsEnum -Descending
         Set-Content `
             -Path $Path `
             -Value $TypeDefAstList.Extent.Text
     }
-    function Get-RequiredAssemblies {
+    function Get-Assemblies {
+        <#
+            .DESCRIPTION
+            Searches through the script (ScriptBlockAst) for instances of the 'Add-Type' command, where the type being added is an AssemblyName, Path, or LiteralPath. Returns a string array of assembly types.
+        #>
         param (
             [System.Management.Automation.Language.ScriptBlockAst] $ScriptBlockAst
         )
-        try {
-            $ScriptBlockAst.FindAll(
-                {
-                    param($node)
-                    $node.Parent -is [commandast] -and 
-                    $node.Parent.GetCommandName() -eq 'Add-Type' -and 
-                    ($index = $node.Parent.CommandElements.IndexOf($node)) -and
-                    $node.Parent.CommandElements[$index - 1] -is [System.Management.Automation.Language.CommandParameterAst] -and 
-                    $node.Parent.CommandElements[$index - 1].ParameterName -match '^a'
-                },
-                $true
-            ).SafeGetValue() | Select-Object -Unique
-        } catch {}
+        # Getting all Parameter value objects from script where the parameter starts with 'a' ('AssemblyName'), 'pat' ('Path'), or 'li' ('LiteralPath')
+        $Assemblies = $ScriptBlockAst.FindAll(
+            {
+                param ($node)
+                $node.Parent -is [System.Management.Automation.Language.CommandAst] -and
+                $node.Parent.GetCommandName() -eq 'Add-Type' -and
+                (
+                    $index = $node.Parent.CommandElements.IndexOf(
+                        $node
+                    )
+                ) -and
+                $node.Parent.CommandElements[$index - 1] -is [System.Management.Automation.Language.CommandParameterAst] -and
+                $node.Parent.CommandElements[$index - 1].ParameterName -match '^(a|pat|li)'
+            },
+            $true
+        )
+        # Return only the value
+        if ($Assemblies){
+            $Assemblies.SafeGetValue()
+        }
     }
     function New-ModuleFile {
         param (
             [String] $Path,
+            [System.IO.FileInfo] $Script,
             [System.Management.Automation.Language.ScriptBlockAst] $ScriptBlockAst
         )
+        function Get-ScriptHelpBlock {
+            param (
+                [System.IO.FileInfo] $Script
+            )
+            $Content = Get-Content $Script
+            $line = 0
+            while ($Content[$line] -notmatch '<#' -and $line -le $Content.Count){
+                $line++
+            }
+            $commentBlockArray = @()
+            do {
+                $commentBlockArray += $Content[$line]
+                $line++
+            } until ($Content[$line] -match '#>' -or $line -gt $Content.Count)
+            $commentBlockArray += $Content[$line++]
+            return $commentBlockArray
+        }
         Set-Content -Path $Path -Value @(
-            $ScriptBlockAst.GetHelpContent().GetCommentBlock(),
+            (Get-ScriptHelpBlock -Script $Script),
             "Get-ChildItem (Split-Path `$script:MyInvocation.MyCommand.Path) -Filter '*.ps1' -Recurse | ForEach-Object { ",
             "    . `$_.FullName ",
-            "}" ,
-            "Get-ChildItem `"`$(Split-Path `$script:MyInvocation.MyCommand.Path)\public\*`" -Filter '*.ps1' -Recurse | ForEach-Object { ",
-            "    Export-ModuleMember -Function `$_.BaseName",
             "}"
         )
     }
     #endregion Functions
 
     # Resolve paths
-    $SourceObject = Resolve-Path -Path $Source | Get-Item
-    $DestinationObject = Resolve-Path -Path $Destination | Get-Item
+    $SourceObj = Get-Item $(Resolve-Path -Path $Source)
+    $DestinationObj = Get-Item $(Resolve-Path -Path $Destination)
 
     # Parse functions from script
     if (!$Name){
-        $Name = $SourceObject.BaseName
+        $Name = $SourceObj.BaseName
     }
 
     $scriptParser = [System.Management.Automation.Language.Parser]::ParseFile(
-        $SourceObject.FullName,
+        $SourceObj.FullName,
         [ref] $null,
         [ref] $null
     )
@@ -247,7 +273,7 @@ function ConvertTo-Module
     )
 
     # Create directory structure
-    $rootPath = "$($DestinationObject.FullName)\$Name"
+    $rootPath = "$($DestinationObj.FullName)\$Name"
     @{
         public = @(
             'functions'
@@ -294,17 +320,17 @@ function ConvertTo-Module
     }
 
     # Create types file 
-    New-TypeDefinitionFile -Path "$privatePath\Types.ps1" -ScriptBlockAst $scriptParser
+    New-TypeDefinitionFile -Path "$privatePath\Types.ps1" -Parser $scriptParser
 
     # Create module file 
-    New-ModuleFile -Path $modulePath -ScriptBlockAst $scriptParser
+    New-ModuleFile -Path $modulePath -Script $SourceObj # -ScriptBlockAst $scriptParser
 
     # Create module manifest
     $manifestParams = @{
         Path = $manifestPath
         RootModule = Split-Path $modulePath -Leaf
         FunctionsToExport = $functionParser.Name | Where-Object { $_ -notin $PrivateFunctions }
-        RequiredAssemblies = Get-RequiredAssemblies -ScriptBlockAst $scriptParser
+        RequiredAssemblies = Get-Assemblies -ScriptBlockAst $scriptParser
     }
     foreach (
         $parameter in $PSBoundParameters.GetEnumerator() | 
